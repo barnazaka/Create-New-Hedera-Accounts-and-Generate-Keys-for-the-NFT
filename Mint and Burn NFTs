@@ -1,0 +1,192 @@
+Mint and Burn NFTs
+In the code above for the NFT creation, the decimals and initial supply must be set to zero. Once the token is created, you will have to mint each NFT using the token mint operation. Specifying a supply key during token creation is a requirement to be able to mint and burn tokens.
+
+In terms of use cases, you may want to mint new NFTs to add items to your NFT class, or you may need to burn NFTs to take a specific item out of circulation. Alternatively, if you’re working with a fungible token (like a stablecoin), you may want to mint new tokens every time there is a new deposit and burn tokens anytime that someone converts their tokens back into fiat.
+
+In this case we’re creating a batch of five NFTs for a collection of five images. We’ll use a “token minter” function and a for loop to speed up the batch NFT minting from our array of content identifiers (CID array):
+
+nft-part1.js
+Copy
+// MINT NEW BATCH OF NFTs - CAN MINT UP TO 10 NFT SERIALS IN A SINGLE TRANSACTION
+let [nftMintRx, mintTxId] = await tokenMinterFcn(CIDs);
+console.log(
+  `\n- Mint ${CIDs.length} serials for NFT collection ${tokenId}: ${nftMintRx.status}`
+);
+console.log(`- See: https://hashscan.io/${network}/transaction/${mintTxId}`);
+nft-part1.js
+Copy
+// TOKEN MINTER FUNCTION ==========================================
+ async function tokenMinterFcn(CIDs) {
+    let mintTx = new TokenMintTransaction()
+	.setTokenId(tokenId)
+	.setMetadata(CIDs)
+	.freezeWith(client);
+        let mintTxSign = await mintTx.sign(supplyKey);
+        let mintTxSubmit = await mintTxSign.execute(client);
+        let mintRx = await mintTxSubmit.getReceipt(client);
+        return [mintRx, mintTxSubmit.transactionId];
+    }
+Console output:
+Copy
+- Mint 5 serials for NFT collection 0.0.4672119: SUCCESS
+- See: https://hashscan.io/testnet/transaction/0.0.4649505@1723230934.771266715
+If you change your mind and decide that you don’t need the last NFT, then you can burn it as follows:
+
+nft-part1.js
+Copy
+// BURN THE LAST NFT IN THE COLLECTION
+let tokenBurnTx = await new TokenBurnTransaction()
+    .setTokenId(tokenId)
+    .setSerials([CIDs.length])
+    .freezeWith(client)
+    .sign(supplyKey);
+    
+let tokenBurnSubmit = await tokenBurnTx.execute(client);
+let tokenBurnRx = await tokenBurnSubmit.getReceipt(client);
+console.log(`\n- Burn NFT with serial ${CIDs.length}: ${tokenBurnRx.status}`);
+console.log(
+  `- See: https://hashscan.io/${network}/transaction/${tokenBurnSubmit.transactionId}`
+ );
+
+var tokenInfo = await new TokenInfoQuery()
+    .setTokenId(tokenId)
+    .execute(client);
+console.log(`\n- Current NFT supply: ${tokenInfo.totalSupply}`);
+Console output:
+Copy
+- Burn NFT with serial 5: SUCCESS
+- See: https://hashscan.io/testnet/transaction/0.0.4649505@1723230939.588918306
+- Current NFT supply: 4
+Auto-Associate and Transfer NFTs
+Before an account that is not the treasury for a token can receive or send this specific token ID, it must become “associated” with the token. This helps reduce unwanted spam and other concerns from users who don’t want to be associated with any of the variety of tokens created on the Hedera network.
+
+This association between an account and a token ID can be done in two ways, manually or automatically. Note that automatic associations can be done for both existing and newly created accounts. For the purposes of our example, we’ll do both.
+
+Alice’s account will be updated to associate with the token automatically
+
+Bob’s account will be manually associated with the token ID
+
+nft-part1.js
+Copy
+// AUTO-ASSOCIATION FOR ALICE'S ACCOUNT
+let associateTx = await new AccountUpdateTransaction()
+    .setAccountId(aliceId)
+    .setMaxAutomaticTokenAssociations(10)
+    .freezeWith(client)
+    .sign(aliceKey);
+let associateTxSubmit = await associateTx.execute(client);
+let associateRx = await associateTxSubmit.getReceipt(client);
+console.log(`\n- Alice NFT Auto-Association: ${associateRx.status}`);
+console.log(
+  `- See: https://hashscan.io/${network}/transaction/${associateTxSubmit.transactionId}`
+);
+
+// MANUAL ASSOCIATION FOR BOB'S ACCOUNT
+let associateBobTx = await new TokenAssociateTransaction()
+    .setAccountId(bobId)
+    .setTokenIds([tokenId])
+    .freezeWith(client)
+    .sign(bobKey);
+let associateBobTxSubmit = await associateBobTx.execute(client);
+let associateBobRx = await associateBobTxSubmit.getReceipt(client);
+console.log(`\n- Bob NFT Manual Association: ${associateBobRx.status}`);
+console.log(
+`- See: https://hashscan.io/${network}/transaction/${associateBobTxSubmit.transactionId}`
+);
+Console output: 
+Copy
+- Alice NFT auto-association: SUCCESS
+- See: https://hashscan.io/testnet/transaction/0.0.4649505@1723230939.742284556
+
+- Bob NFT manual association: SUCCESS
+- See: https://hashscan.io/testnet/transaction/0.0.4649505@1723230942.397064432
+Finally, let’s do two transfers of the NFT with serial number 2 and see how the royalty fees are collected. The first transfer will be from the Treasury to Alice, and the second NFT transfer will be from Alice to Bob in exchange for 100 HBAR.
+
+NFT Transfer from Treasury to Alice
+Now, let’s do the first NFT transfer and check the account balances before and after the send.
+
+nft-part1.js
+Copy
+// BALANCE CHECK 1
+oB = await bCheckerFcn(treasuryId);
+aB = await bCheckerFcn(aliceId);
+bB = await bCheckerFcn(bobId);
+console.log(`\n- Treasury balance: ${oB[0]} NFTs of ID:${tokenId} and ${oB[1]}`);
+console.log(`- Alice balance: ${aB[0]} NFTs of ID:${tokenId} and ${aB[1]}`);
+console.log(`- Bob balance: ${bB[0]} NFTs of ID:${tokenId} and ${bB[1]}`);
+
+// 1st TRANSFER NFT Treasury->Alice
+let tokenTransferTx = await new TransferTransaction()
+  .addNftTransfer(tokenId, 2, treasuryId, aliceId)
+  .freezeWith(client)
+  .sign(treasuryKey);
+let tokenTransferSubmit = await tokenTransferTx.execute(client);
+let tokenTransferRx = await tokenTransferSubmit.getReceipt(client);
+console.log(`\n NFT transfer Treasury->Alice status: ${tokenTransferRx.status}`);
+console.log(
+`- See: https://hashscan.io/${network}/transaction/${tokenTransferSubmit.transactionId}`
+);
+
+// BALANCE CHECK 2: COPY/PASTE THE CODE ABOVE IN BALANCE CHECK 1
+// BALANCE CHECK 2
+oB = await bCheckerFcn(treasuryId);
+aB = await bCheckerFcn(aliceId);
+bB = await bCheckerFcn(bobId);
+console.log(`\n- Treasury balance: ${oB[0]} NFTs of ID:${tokenId} and ${oB[1]}`);
+console.log(`- Alice balance: ${aB[0]} NFTs of ID:${tokenId} and ${aB[1]}`);
+console.log(`- Bob balance: ${bB[0]} NFTs of ID:${tokenId} and ${bB[1]}`);
+nft-part1.js
+Copy
+// BALANCE CHECKER FUNCTION ==========================================
+async function bCheckerFcn(id) {
+  balanceCheckTx = await new AccountBalanceQuery()
+    .setAccountId(id)
+    .execute(client);
+  return [
+    balanceCheckTx.tokens._map.get(tokenId.toString()),
+    balanceCheckTx.hbars,
+  ];
+}
+Console output:
+Copy
+- Treasury balance: 4 NFTs of ID:0.0.4672119 and 1 ℏ
+- Alice balance: undefined NFTs of ID:0.0.4672119 and 1 ℏ
+- Bob balance: 0 NFTs of ID:0.0.4672119 and 1 ℏ
+
+- NFT transfer Treasury -> Alice status: SUCCESS
+- See: https://hashscan.io/testnet/transaction/0.0.4649505@1723230943.472094366
+
+- Treasury balance: 3 NFTs of ID:0.0.4672119 and 1 ℏ
+- Alice balance: 1 NFTs of ID:0.0.4672119 and 1 ℏ
+- Bob balance: 0 NFTs of ID:0.0.4672119 and 1 ℏ
+As you remember from the Custom Token Fees documentation, the treasury account and any fee-collecting accounts for a token are exempt from paying custom transaction fees when the token is transferred. Since the treasury account is also the fee collector for the token, that means there are no royalty fees collected in this first transfer.
+
+NFT Transfer from Alice to Bob
+nft-part1.js
+Copy
+// 2nd NFT TRANSFER NFT Alice->Bob
+let nftPrice = new Hbar(10000000, HbarUnit.Tinybar); // 1HBAR = 10,000,000 Tinybar
+let tokenTransferTx2 = await new TransferTransaction()
+	.addNftTransfer(tokenId, 2, aliceId, bobId)
+	.addHbarTransfer(aliceId, nftPrice)
+	.addHbarTransfer(bobId, nftPrice.negated())
+	.freezeWith(client)
+	.sign(aliceKey);
+let tokenTransferTx2Sign = await tokenTransferTx2.sign(bobKey);
+let tokenTransferSubmit2 = await tokenTransferTx2Sign.execute(client);
+let tokenTransferRx2 = await tokenTransferSubmit2.getReceipt(client);
+console.log(`\n NFT transfer Alice->Bob status: ${tokenTransferRx2.status}`);
+console.log(
+`- See: https://hashscan.io/${network}/transaction/${tokenTransferSubmit2.transactionId}`
+);
+
+// BALANCE CHECK 3: COPY/PASTE THE CODE ABOVE IN BALANCE CHECK 1
+Console output:
+Copy
+- NFT transfer Alice -> Bob status: SUCCESS
+- See: https://hashscan.io/testnet/transaction/0.0.4649505@1723230945.514991505
+
+- Treasury balance: 3 NFTs of ID:0.0.4672119 and 1.01 ℏ
+- Alice balance: 0 NFTs of ID:0.0.4672119 and 1.09 ℏ
+- Bob balance: 1 NFTs of ID:0.0.4672119 and 0.9 ℏ
+Remember from the documentation that royalty fees are paid from the fungible value exchanged, which was 100 HBAR in this case. The royalty fee is specified to be 50%, so that’s why the treasury collects 50 HBAR, and Alice collects the remaining 50 HBAR. Remember that when there’s no exchange of fungible value (like HBAR or a fungible token), the fallback fee is charged (currently 200 HBAR in our custom fee schedule).
